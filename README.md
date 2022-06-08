@@ -31,6 +31,10 @@ The code provided is a badly written :vomit: simulation code written in Rust usi
 [Bevy library](https://bevyengine.org/).
 To run it, make sure to have `cargo` installed and all the dependencies `bevy` needs.
 
+To control the robot, use `a` and `d` to turn and `w` and `s` to go forward and backwards.
+
+To launch a "ball", press `space`.
+
 To run use:
 ```shell
 cargo run
