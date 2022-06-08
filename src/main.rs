@@ -13,6 +13,7 @@ const TARGET_COLOR: Color = Color::rgb(0.0, 1.0, 0.2);
 const BALL_COLOR: Color = Color::rgb(0.0, 0.2, 1.0);
 const ARENA_WIDTH: f32 = 40.0;
 const ARENA_HEIGHT: f32 = 20.0;
+const AIR_RES: f64 = 0.5 * 0.47 * 1.28;
 
 fn main() {
     App::new()
@@ -196,6 +197,7 @@ fn keyboard_input(
                 })
                 .insert(Ball {})
                 .insert(Body {
+                    size: 0.1,
                     pos: vector![t.pos.x, t.pos.y, 0.0],
                     vel: shot,
                     acc: vector![0.0, 0.0, -9.81],
@@ -221,6 +223,7 @@ fn setup_stage(mut commands: Commands, target: Res<Target>) {
         })
         .insert(Size::square(2.0))
         .insert(Body {
+            size: 0.0,
             pos: vector![0.0, 0.0, 0.0],
             vel: vector![0.0, 0.0, 0.0],
             acc: vector![0.0, 0.0, 0.0],
@@ -234,6 +237,7 @@ fn setup_stage(mut commands: Commands, target: Res<Target>) {
             ..default()
         })
         .insert(Body {
+            size: 0.0,
             pos: target.target,
             vel: Default::default(),
             acc: Default::default(),
@@ -275,6 +279,14 @@ fn move_objects(mut commands: Commands, mut query: Query<(Entity, &mut Body)>, t
     for (ent, mut transform) in query.iter_mut() {
         let acc = transform.acc * time.delta_seconds_f64();
         transform.vel += acc;
+        let speed = (transform.vel[0].powi(2) + transform.vel[1].powi(2) + transform.vel[2].powi(2)).sqrt() * time.delta_seconds_f64();
+        if transform.vel[0] != 0.0 {
+            let angle = (transform.vel[1] / transform.vel[0]).atan();
+            transform.vel[0] -= AIR_RES * transform.size * speed * angle.cos();
+        } else {
+            transform.vel[1] -= AIR_RES * transform.size * speed;
+        }
+        transform.vel[2] -= AIR_RES * transform.size * speed;
         let vel = transform.vel * time.delta_seconds_f64();
         transform.pos += vel;
         if transform.pos.z < 0.0 {
@@ -314,6 +326,7 @@ struct Ball {}
 
 #[derive(Component)]
 struct Body {
+    size: f64, // Surface area / mass
     pos: Vector3<f64>,
     vel: Vector3<f64>,
     acc: Vector3<f64>,
