@@ -14,9 +14,9 @@ The way this method works though is it creates a parallelogram like below.
 
 In this badly drawn image, $a$ is the distance to the target, $b$ is the distance
 the robot will travel in the flight time of the ball (needs to be known for this)
-$theta$ is the angle of the turret.
+$\theta$ is the angle of the turret.
 
-The code will then calculate $c$ and $theta_1$ using basic trig.
+The code will then calculate $c$ and $\theta_1$ using basic trig.
 
 The code also requires having a method to calculate flywheel speeds for each given distance.
 
