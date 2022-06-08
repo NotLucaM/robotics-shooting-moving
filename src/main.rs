@@ -1,8 +1,10 @@
 extern crate nalgebra as na;
 
-use std::f64::consts::PI;
+use bevy::math::vec3;
 use bevy::prelude::*;
+use bevy_prototype_debug_lines::*;
 use na::{vector, Vector3};
+use std::f64::consts::PI;
 
 const G: f64 = -9.8;
 const UP: f64 = 15.0;
@@ -22,6 +24,7 @@ fn main() {
         .add_system(keyboard_input)
         .add_system(move_objects)
         .add_plugins(DefaultPlugins)
+        .add_plugin(DebugLinesPlugin::default())
         .add_system_set_to_stage(
             CoreStage::PostUpdate,
             SystemSet::new()
@@ -32,8 +35,7 @@ fn main() {
 }
 
 fn distance(p1: &Vector3<f64>, p2: &Vector3<f64>) -> f64 {
-    ((p1[0] - p2[0]).powi(2)
-        + (p1[1] - p2[1]).powi(2)).sqrt()
+    ((p1[0] - p2[0]).powi(2) + (p1[1] - p2[1]).powi(2)).sqrt()
 }
 
 fn law_cosines(d1: f64, d2: f64, a: f64) -> f64 {
@@ -44,19 +46,146 @@ fn law_sines(d1: f64, a1: f64, d2: f64) -> f64 {
     (d2 * a1.sin() / d1).asin()
 }
 
+fn translate(vec: &Vector3<f64>, window: &Windows) -> Vec3 {
+    translate_vec(vec3(vec.x as f32, vec.y as f32, vec.z as f32), window)
+}
+
+fn translate_vec(vec: Vec3, window: &Windows) -> Vec3 {
+    fn convert(pos: f32, bound_window: f32, bound_game: f32) -> f32 {
+        let tile_size = bound_window / bound_game;
+        pos / bound_game * bound_window - (bound_window / 2.) + (tile_size / 2.)
+    }
+    let window = window.get_primary().unwrap();
+    Vec3::new(
+        convert(vec.x, window.width() as f32, ARENA_WIDTH),
+        convert(vec.y, window.height() as f32, ARENA_HEIGHT),
+        vec.z,
+    )
+}
+
 fn setup_camera(mut commands: Commands) {
-    commands.spawn_bundle(OrthographicCameraBundle::new_2d());
+    let mut camera = OrthographicCameraBundle::new_2d();
+    camera.transform = Transform::from_translation(vec3(0.0, 0.0, 5.0));
+    commands.spawn_bundle(camera);
 }
 
 fn keyboard_input(
     keys: Res<Input<KeyCode>>,
     target: Res<Target>,
+    window: Res<Windows>,
     mut commands: Commands,
     mut player: Query<(&mut Robot, &mut Body)>,
+    mut lines: ResMut<DebugLines>,
 ) {
     for (mut p, mut t) in player.iter_mut() {
+        t.vel = vector![0.0, 0.0, 0.0];
+        if keys.pressed(KeyCode::A) {
+            p.bearing += 0.1;
+        } else if keys.pressed(KeyCode::D) {
+            p.bearing -= 0.1;
+        }
+        if keys.pressed(KeyCode::S) {
+            p.vel = -5.0;
+        } else if keys.pressed(KeyCode::W) {
+            p.vel = 5.0;
+        } else {
+            p.vel = 0.0;
+        }
+
+        t.vel.x = p.vel * p.bearing.cos();
+        t.vel.y = p.vel * p.bearing.sin();
+
+        p.turret_angle =
+            ((target.target.y - t.pos.y) / (target.target.x - t.pos.x)).atan() - p.bearing;
+
+        lines.line_colored(
+            translate_vec(vec3(t.pos.x as f32, t.pos.y as f32, 1.0), &window),
+            translate_vec(
+                vec3(
+                    (t.pos.x + 2.0 * (p.turret_angle + p.bearing).cos()) as f32,
+                    (t.pos.y + 2.0 * (p.turret_angle + p.bearing).sin()) as f32,
+                    1.0,
+                ),
+                &window,
+            ),
+            0.0,
+            Color::GREEN,
+        );
+
+        if target.target.x - t.pos.x < 0.0 {
+            p.turret_angle += PI;
+        }
+
+        // shooting while moving
+        let future_distance = law_cosines(
+            p.vel * 3.06,
+            distance(&target.target, &t.pos),
+            p.turret_angle,
+        );
+
+        let future_pos = vec3(
+            (t.pos.x + t.vel.x * 3.06) as f32,
+            (t.pos.y + t.vel.y * 3.06) as f32,
+            0.0,
+        );
+
+        lines.line_colored(
+            translate(&target.target, &window),
+            translate(&t.pos, &window),
+            0.0,
+            Color::PINK,
+        );
+        lines.line_colored(
+            translate(&t.pos, &window),
+            translate_vec(future_pos, &window),
+            0.0,
+            Color::BLUE,
+        );
+        lines.line_colored(
+            translate(&target.target, &window),
+            translate_vec(future_pos, &window),
+            0.0,
+            Color::YELLOW,
+        );
+        lines.line_colored(
+            translate(&target.target, &window),
+            translate(&target.target, &window) + translate_vec(future_pos, &window)
+                - translate(&t.pos, &window),
+            0.0,
+            Color::MIDNIGHT_BLUE,
+        );
+        lines.line_colored(
+            translate_vec(future_pos, &window),
+            translate(&target.target, &window) + translate_vec(future_pos, &window)
+                - translate(&t.pos, &window),
+            0.0,
+            Color::TURQUOISE,
+        );
+
+        let vel = p.get_ball_shot(&t, &target.target);
+
+        p.turret_angle += law_sines(future_distance, p.turret_angle, p.vel * 3.06);
+
+        let ball_x = (p.bearing + p.turret_angle).cos() * vel.0;
+        let ball_y = (p.bearing + p.turret_angle).sin() * vel.0;
+
+        let shot = t.vel + vector![ball_x, ball_y, vel.1];
+
+        lines.line_colored(
+            translate_vec(vec3(t.pos.x as f32, t.pos.y as f32, 1.0), &window),
+            translate_vec(
+                vec3(
+                    (t.pos.x + 2.0 * (p.turret_angle + p.bearing).cos()) as f32,
+                    (t.pos.y + 2.0 * (p.turret_angle + p.bearing).sin()) as f32,
+                    1.0,
+                ),
+                &window,
+            ),
+            0.0,
+            Color::BLACK,
+        );
+
         if keys.just_pressed(KeyCode::Space) {
-            let shot = p.get_ball_shot(&t, &target.target);
             commands
                 .spawn_bundle(SpriteBundle {
                     sprite: Sprite {
@@ -73,45 +202,6 @@ fn keyboard_input(
                 })
                 .insert(Size::square(1.0));
         }
-
-        t.vel = vector![0.0, 0.0, 0.0];
-        if keys.pressed(KeyCode::A) {
-            t.vel.x = -5.0;
-            p.bearing = PI;
-        } else if keys.pressed(KeyCode::D) {
-            t.vel.x = 5.0;
-            p.bearing = 0.0;
-        }
-        if keys.pressed(KeyCode::S) {
-            t.vel.y = -5.0;
-            if keys.pressed(KeyCode::A) {
-                p.bearing = 5.0 * PI / 4.0;
-            } else if keys.pressed(KeyCode::D) {
-                p.bearing = 7.0 * PI / 4.0;
-            } else {
-                p.bearing = 3.0 * PI / 2.0;
-            }
-        } else if keys.pressed(KeyCode::W) {
-            t.vel.y = 5.0;
-            if keys.pressed(KeyCode::A) {
-                p.bearing = 3.0 * PI / 4.0;
-            } else if keys.pressed(KeyCode::D) {
-                p.bearing = PI / 4.0;
-            } else {
-                p.bearing = PI / 2.0;
-            }
-        }
-
-        // traditional way of getting turret angle
-        p.turret_angle = ((target.target.y - t.pos.y) / (target.target.x - t.pos.x)).atan() - p.bearing;
-        if target.target.x - t.pos.x < 0.0 {
-            p.turret_angle += PI;
-        }
-
-        // shooting while moving
-        let velocity = (t.vel.x.powi(2) + t.vel.y.powi(2)).sqrt();
-        let future_distance = law_cosines(velocity * 3.06, distance(&target.target, &t.pos), p.turret_angle);
-        p.turret_angle += law_sines(future_distance, p.turret_angle, velocity * 3.06)
     }
 }
 
@@ -127,6 +217,7 @@ fn setup_stage(mut commands: Commands, target: Res<Target>) {
         .insert(Robot {
             bearing: 0.0,
             turret_angle: 0.0,
+            vel: 0.0,
         })
         .insert(Size::square(2.0))
         .insert(Body {
@@ -164,7 +255,7 @@ fn position_translation(windows: Res<Windows>, mut q: Query<(&Body, &mut Transfo
                 window.height() as f32,
                 ARENA_HEIGHT as f32,
             ),
-            pos.pos.z as f32,
+            0.0,
         );
     }
 }
@@ -201,6 +292,7 @@ struct Target {
 struct Robot {
     bearing: f64,
     turret_angle: f64,
+    vel: f64,
 }
 
 impl Robot {
@@ -208,18 +300,12 @@ impl Robot {
         (-G * dist / (2.0 * UP), UP)
     }
 
-    fn get_ball_shot(&self, loc: &Body, target: &Vector3<f64>) -> Vector3<f64> {
+    fn get_ball_shot(&self, loc: &Body, target: &Vector3<f64>) -> (f64, f64) {
         let dist = distance(&loc.pos, target);
 
-        let vel = (loc.vel.x.powi(2) + loc.vel.y.powi(2)).sqrt();
-        let dist = law_cosines(vel * 3.06, dist, self.turret_angle);
+        let dist = law_cosines(self.vel * 3.06, dist, self.turret_angle);
 
-        let tree_map = Robot::tree_map(dist);
-
-        let ball_x = (self.bearing + self.turret_angle).cos() * tree_map.0;
-        let ball_y = (self.bearing + self.turret_angle).sin() * tree_map.0;
-
-        loc.vel + vector![ball_x, ball_y, tree_map.1]
+        Robot::tree_map(dist)
     }
 }
 

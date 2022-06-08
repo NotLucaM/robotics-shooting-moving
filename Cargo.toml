@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 bevy = { version = "0.7", features = [ "dynamic", "wayland" ] }
 nalgebra = "0.31.0"
+bevy_prototype_debug_lines = { version = "0.7", features = [ ] }
