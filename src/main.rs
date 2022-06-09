@@ -7,13 +7,14 @@ use na::{vector, Vector3};
 use std::f64::consts::PI;
 
 const G: f64 = -9.8;
-const UP: f64 = 15.0;
+const UP: f64 = 10.0;
 const ROBOT_COLOR: Color = Color::rgb(1.0, 0.2, 0.2);
 const TARGET_COLOR: Color = Color::rgb(0.0, 1.0, 0.2);
 const BALL_COLOR: Color = Color::rgb(0.0, 0.2, 1.0);
 const ARENA_WIDTH: f32 = 40.0;
 const ARENA_HEIGHT: f32 = 20.0;
 const AIR_RES: f64 = 0.5 * 0.47 * 1.28;
+const ROBOT_VEL: f64 = 2.0;
 
 fn main() {
     App::new()
@@ -86,9 +87,9 @@ fn keyboard_input(
             p.bearing -= 0.1;
         }
         if keys.pressed(KeyCode::S) {
-            p.vel = -5.0;
+            p.vel = -ROBOT_VEL;
         } else if keys.pressed(KeyCode::W) {
-            p.vel = 5.0;
+            p.vel = ROBOT_VEL;
         } else {
             p.vel = 0.0;
         }
@@ -117,16 +118,18 @@ fn keyboard_input(
             p.turret_angle += PI;
         }
 
+        let ball_time = (- UP - (UP * UP + 4.0 * 0.5 * 9.8).sqrt()) / (- 9.8);
+
         // shooting while moving
         let future_distance = law_cosines(
-            p.vel * 3.06,
+            p.vel * ball_time,
             distance(&target.target, &t.pos),
             p.turret_angle,
         );
 
         let future_pos = vec3(
-            (t.pos.x + t.vel.x * 3.06) as f32,
-            (t.pos.y + t.vel.y * 3.06) as f32,
+            (t.pos.x + t.vel.x * ball_time) as f32,
+            (t.pos.y + t.vel.y * ball_time) as f32,
             0.0,
         );
 
@@ -165,7 +168,7 @@ fn keyboard_input(
 
         let vel = p.get_ball_shot(&t, &target.target);
 
-        p.turret_angle += law_sines(future_distance, p.turret_angle, p.vel * 3.06);
+        p.turret_angle += law_sines(future_distance, p.turret_angle, p.vel * ball_time);
 
         let ball_x = (p.bearing + p.turret_angle).cos() * vel.0;
         let ball_y = (p.bearing + p.turret_angle).sin() * vel.0;
@@ -315,7 +318,9 @@ impl Robot {
     fn get_ball_shot(&self, loc: &Body, target: &Vector3<f64>) -> (f64, f64) {
         let dist = distance(&loc.pos, target);
 
-        let dist = law_cosines(self.vel * 3.06, dist, self.turret_angle);
+        let ball_time = (- UP - (UP * UP + 4.0 * 0.5 * 9.8).sqrt()) / (- 9.8);
+
+        let dist = law_cosines(self.vel * ball_time, dist, self.turret_angle);
 
         Robot::tree_map(dist)
     }
